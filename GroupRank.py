@@ -1,21 +1,48 @@
 import requests
 import numpy as np
 import GroupRankPrivateInfo #defines variable AccessToken
+import matplotlib.pyplot as plt
+from difflib import SequenceMatcher
 
 #Specify Constants
-GroupIndex=0 #Modify for different Group
 AuthorizationLink=GroupRankPrivateInfo.AuthorizationLink
 BaseRequestURL="https://api.groupme.com/v3"
 AccessToken=GroupRankPrivateInfo.AccessToken
 Filler="?token="
+GroupRequestCt=100
 
 #Request first block of messages from group
 def FRequest(RequestType,Params):
     global BaseRequestURL, AccessToken, Filler
     RequestURL=BaseRequestURL+RequestType+Filler+AccessToken
     return requests.get(RequestURL,params=Params).json()["response"]
-AllGroups=FRequest("/groups",{"per_page":(GroupIndex+1)})
-Group=AllGroups[GroupIndex]
+AllGroups=FRequest("/groups",{"per_page":(GroupRequestCt)})
+
+#Ask user for group
+Group=-1
+while (Group==-1):
+    print("Input group name or index",end="")
+    userInput=input("")
+    if (userInput.isdigit()):
+        userInt=int(userInput)
+        if (userInt>=0):
+            if (userInt<len(AllGroups)):
+                Group=AllGroups[userInt]
+            else:
+                AllGroups=FRequest("/groups",{"per_page":(userInt+1)})
+                Group=AllGroups[userInt]
+    else:
+        bestMatch=0.25
+        for i in range(len(AllGroups)):
+            diff=SequenceMatcher(None,userInput,AllGroups[i]["name"]).ratio()
+            if (diff>bestMatch):
+                Group=AllGroups[i]
+                bestMatch=diff
+    if (Group==-1):
+        print("Invalid input")
+print("Generating results")
+
+#Determine basic group information
 ID=Group["id"]
 CountMessages=FRequest("/groups/"+str(ID)+"/messages",{})["count"]
 ParsedMessages=0
@@ -60,6 +87,12 @@ while (True):
 MemberList=["?"]*NumMembers
 for Index in IndexToName:
     MemberList[Index]=IndexToName[Index]
+for Member in Group["members"]:
+    ID=Member["user_id"]
+    if (ID in IDtoIndex):
+        Index=IDtoIndex[ID]
+        if (not (Index in IndexToName)):
+            IndexToName[Index]=Member["nickname"]
 LikesMatrix=np.zeros((NumMembers,NumMembers))
 for MemberIndex in range(NumMembers):
     MemberLikes=LikesAdjList[MemberIndex]
@@ -88,12 +121,13 @@ class MemberRank:
     def __lt__(self,other):
         return (self.Value<other.Value)
 Ranks=[1/NumMembers]*NumMembers
-for Iteration in range(100):
+for Iteration in range(1000):
     NewRanks=[0]*NumMembers
     for Row in range(NumMembers):
         for Col in range(NumMembers):
             NewRanks[Col]+=Ranks[Row]*LikesProbability[Row][Col]
     Ranks=NewRanks
+
 ResultClass=[]
 for Row in range(NumMembers):
     MemberName="?"
@@ -107,6 +141,30 @@ for Row in range(min(NumMembers,50)):
     ResultRow=[ResultClass[Row].Member,100*ResultClass[Row].Value]
     print(ResultClass[Row].Member,round(100*ResultClass[Row].Value,1))
     Result.append(ResultRow)
+
+def genPieChart(Result):
+    Labels=[]
+    Sizes=[]
+    for i in range(len(Result)):
+        Row=Result[i]
+        if (len(Result)<=10 or Row[1]>=5 or i==(len(Result)-1)):
+            Labels.append(Row[0])
+            Sizes.append(Row[1])
+        else:
+            RemainingSize=0
+            for j in range(i, len(Result)):
+                Row=Result[j]
+                RemainingSize+=Row[1]
+            Sizes.append(RemainingSize)
+            Labels.append("Other")
+            break
+    plt.pie(x=Sizes, labels=Labels)
+
+genPieChart(Result)
+
+
+
+
 
 
 
